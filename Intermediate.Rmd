@@ -1,5 +1,97 @@
 ---
-title: "Intermediate"
-output: html_document
+title: "Intermediate Report"
+author: ""
+date: "2025-11-17"
+output:
+  pdf_document: default
+  word_document: default
+subtitle: Mth 4330
+header-includes:
+- \usepackage{amsmath}
+- \usepackage{amssymb}
+- \usepackage{graphicx}
+- \usepackage{enumitem}
 ---
+
+<!-- Keep this block  -->
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+
+# Add any R packages you want here -----------------------
+library(rstudioapi)
+library(ISLR2)
+library(purrr)
+
+# Do not touch below this line ---------------------------
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+def.chunk.hook  <- knitr::knit_hooks$get("chunk")
+knitr::knit_hooks$set(chunk = function(x, options) {
+  x <- def.chunk.hook(x, options)
+  paste0("\n \\", "footnotesize","\n\n", x, "\n\n \\normalsize")
+})
+```
+
+
+```{r}
+# what is the "source" of your dataset? you should specify the origin under Dataset section.
+# ordinal is a bit tricky that typical discrete variables without orders. make sure you point that out. for instance, naive logistic regression with one-hot encoding for 3 classes (your team's target) can be used, but it is not for ordinal regression in general.
+# for generalization, you should consider random splitting and reporting cv errors. at least in this retrospective studies, that is good enough.
+
+# Student_ID: Unique identifier for each student.
+# Age and Gender: Demographic information relevant to physiological data interpretation.
+# Heart_Rate, Blood_Pressure_Systolic, Blood_Pressure_Diastolic: Physiological measurements gathered from biosensors, indicative of cardiovascular health.
+# Stress_Level_Biosensor and Stress_Level_Self_Report: Biosensor and self-reported stress levels on a scale of 1 to 10.
+# Physical_Activity and Sleep_Quality: Categorical variables indicating physical activity level (Low, Moderate, High) and sleep quality (Poor, Moderate, Good).
+# Mood: Self-reported emotional state categorized as 'Happy', 'Neutral', or 'Stressed'.
+# Study_Hours and Project_Hours: Weekly hours dedicated to study and entrepreneurial activities, which are major factors contributing to workload.
+# Health_Risk_Level: Target label derived based on stress and lifestyle indicators, categorized as Low, Moderate, or High risk.
+
+# Data Processing
+data <- read.csv('Data/student_health_data.csv')
+
+#data$Health_Risk_Level
+
+encode <- function(v){
+  if(v == "High" | v == "Good" | v == "Happy"){return (c(1,0,0))}
+  else if(v == "Moderate" | v == "Neutral"){(c(0,1,0))}
+  else{return (c(0,0,1))}
+}
+test <- map(data$Health_Risk_Level, encode)
+
+```
+
+```{r}
+# Baseline Model
+
+```
+
+
+```{r}
+#Log R Model
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
