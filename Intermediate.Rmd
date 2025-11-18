@@ -1,6 +1,6 @@
 ---
 title: "Intermediate Report"
-author: ""
+author: "Christopher Guzman, Dereck Lin, Haris Nioulikos, Samiha Uddin"
 date: "2025-11-17"
 output:
   pdf_document: default
@@ -22,7 +22,12 @@ knitr::opts_chunk$set(echo = FALSE)
 library(rstudioapi)
 library(ISLR2)
 library(purrr)
-
+library(dplyr)# used for ordinal encoding
+library(MASS) # for ordered logr
+#library(caret)
+library(tidyverse)
+library(glmnet)# for lasso
+#library(ordinalNet)# for ordinal Lasso
 # Do not touch below this line ---------------------------
 setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
 def.chunk.hook  <- knitr::knit_hooks$get("chunk")
@@ -34,47 +39,243 @@ knitr::knit_hooks$set(chunk = function(x, options) {
 
 
 ```{r}
-# what is the "source" of your dataset? you should specify the origin under Dataset section.
-# ordinal is a bit tricky that typical discrete variables without orders. make sure you point that out. for instance, naive logistic regression with one-hot encoding for 3 classes (your team's target) can be used, but it is not for ordinal regression in general.
-# for generalization, you should consider random splitting and reporting cv errors. at least in this retrospective studies, that is good enough.
-
-# Student_ID: Unique identifier for each student.
-# Age and Gender: Demographic information relevant to physiological data interpretation.
-# Heart_Rate, Blood_Pressure_Systolic, Blood_Pressure_Diastolic: Physiological measurements gathered from biosensors, indicative of cardiovascular health.
-# Stress_Level_Biosensor and Stress_Level_Self_Report: Biosensor and self-reported stress levels on a scale of 1 to 10.
-# Physical_Activity and Sleep_Quality: Categorical variables indicating physical activity level (Low, Moderate, High) and sleep quality (Poor, Moderate, Good).
-# Mood: Self-reported emotional state categorized as 'Happy', 'Neutral', or 'Stressed'.
-# Study_Hours and Project_Hours: Weekly hours dedicated to study and entrepreneurial activities, which are major factors contributing to workload.
-# Health_Risk_Level: Target label derived based on stress and lifestyle indicators, categorized as Low, Moderate, or High risk.
-
 # Data Processing
-data <- read.csv('Data/student_health_data.csv')
+student_health_data <- read.csv('Data/student_health_data.csv')
 
-#data$Health_Risk_Level
+#convert response label to an ordered factor
+student_health_data$Health_Risk_Level <- factor(student_health_data$Health_Risk_Level,levels = c("Low", "Moderate", "High"),ordered = TRUE)
 
-encode <- function(v){
-  if(v == "High" | v == "Good" | v == "Happy"){return (c(1,0,0))}
-  else if(v == "Moderate" | v == "Neutral"){(c(0,1,0))}
-  else{return (c(0,0,1))}
+#Encoding ordinal features, and the nominal feature gender
+#cat features:  Gender, Physical_Activity, Sleep_Quality, Mood
+student_health_data <- student_health_data %>%
+  mutate(
+    Gender = case_when(
+      Gender == "M" ~ 1,
+      Gender == "F" ~ 0
+      ),
+    Physical_Activity = case_when(
+      Physical_Activity == "High" ~ 2,
+      Physical_Activity == "Moderate" ~ 1,
+      Physical_Activity == "Low" ~ 0
+      ),
+    Sleep_Quality = case_when(
+      Sleep_Quality == "Good" ~ 2,
+      Sleep_Quality == "Moderate" ~ 1,
+      Sleep_Quality == "Poor" ~ 0
+      ),
+    Mood = case_when(
+      Mood == "Happy" ~ 2,
+      Mood == "Neutral" ~ 1,
+      Mood == "Stressed" ~ 0
+      )
+    )
+
+# remove identifier(Student_ID)
+student_health_data$Student_ID <- NULL
+
+#OVR encode into separate cols
+classes <- levels(student_health_data$Health_Risk_Level)
+for(class in classes){
+  isClass <- paste0("y_", class)
+  student_health_data[[isClass]] <- ifelse(student_health_data$Health_Risk_Level == class, 1, 0)
 }
-test <- map(data$Health_Risk_Level, encode)
+
+# split into train&test(8:2)
+# src: https://scikit-learn.org/stable/common_pitfalls.html
+idx <- createDataPartition(student_health_data$Health_Risk_Level, p = 0.8, list = FALSE)
+tr <- student_health_data[idx,]
+te <- student_health_data[-idx,]
+
+#extract feature matrix and response matrix for lasso using glmnet
+# x_tr <- tr[,- c(13,14,15,16)]
+# y_tr <- tr[,c(13,14,15,16)]
+# 
+# x_te <- te[,- c(13,14,15,16)]
+# y_te <- te[, c(13,14,15,16)]
+
+#cv vec
+v <- sample(1:5, nrow(tr), replace = TRUE)
+
+```
+## Baseline Model
+
+```{r}
+
+```
+
+##model 1: y ~ Stress_Level_Self_Report
+
+```{r}
+#simple log r, one vs rest, ie isHigh vs !isHigh, isModerate vs !isModerate, isLow vs !isLow
+#src: Logistic regression 5.1: Multiclass - One-vs-rest classification, https://www.youtube.com/watch?v=EYXSve6T5BU&t=75s
+
+m1_cv_log_loss <- c(0,0,0,0,0)
+#itr over cv folds
+for(fold in 1:5){
+  #split tr data into folds
+  cv_tr <- tr[v != fold, ]   
+  cv_te <- tr[v == fold, ]
+  
+  #fit on Stress_Level_Self_Report
+  m1_High <- glm(y_High ~ Stress_Level_Self_Report,data = cv_tr, family = "binomial")
+  m1_Moderate <- glm(y_Moderate ~ Stress_Level_Self_Report,data = cv_tr, family = "binomial")
+  m1_Low <- glm(y_Low ~ Stress_Level_Self_Report,data = cv_tr, family = "binomial")
+  
+  #predict
+  m1_High_Pred <- predict(m1_High, newdata = cv_te, type = 'response')
+  m1_Moderate_Pred <- predict(m1_Moderate, newdata = cv_te, type = 'response')
+  m1_Low_Pred <- predict(m1_Low, newdata = cv_te, type = 'response')
+  
+  #normalize probabilities
+  m1_y_pred <- cbind(m1_Low_Pred,m1_Moderate_Pred,m1_High_Pred)
+  m1_y_pred_row_sum <- rowSums(m1_y_pred)
+  m1_y_pred_normalized <- m1_y_pred / m1_y_pred_row_sum
+  
+  #real label
+  m1_y_real <- cv_te[,c(14,15,16)]
+  
+  #Cross entropy loss
+
+  m1_cv_log_loss[fold] <-  -mean(rowSums(m1_y_real * log(m1_y_pred_normalized)))
+}
+
+m1_log_loss <- mean(m1_cv_log_loss)
+```
+
+##Model 2: y ~ Stress_Level_Biosensor
+
+```{r}
+m2_cv_log_loss <- c(0,0,0,0,0)
+
+#itr over cv folds
+for(fold in 1:5){
+  #split tr data into folds
+  cv_tr <- tr[v != fold, ]   
+  cv_te <- tr[v == fold, ]
+  
+  #fit on Stress
+  m2_High <- glm(y_High ~ Stress_Level_Biosensor,data = cv_tr, family = "binomial")
+  m2_Moderate <- glm(y_Moderate ~ Stress_Level_Biosensor,data = cv_tr, family = "binomial")
+  m2_Low <- glm(y_Low ~ Stress_Level_Biosensor,data = cv_tr, family = "binomial")
+  
+  #predict
+  m2_High_Pred <- predict(m2_High, newdata = cv_te, type = 'response')
+  m2_Moderate_Pred <- predict(m2_Moderate, newdata = cv_te, type = 'response')
+  m2_Low_Pred <- predict(m2_Low, newdata = cv_te, type = 'response')
+  
+  #normalize probabilities
+  m2_y_pred <- cbind(m2_Low_Pred,m2_Moderate_Pred,m2_High_Pred)
+  m2_y_pred_row_sum <- rowSums(m2_y_pred)
+  m2_y_pred_normalized <- m2_y_pred / m2_y_pred_row_sum
+  
+  #real label
+  m2_y_real <- cv_te[,c(14,15,16)]
+  
+  #Cross entropy loss
+
+  m2_cv_log_loss[fold] <-  -mean(rowSums(m2_y_real * log(m2_y_pred_normalized)))
+}
+
+m2_log_loss <- mean(m2_cv_log_loss)
+```
+
+##Model 3: Y ~ .
+
+```{r}
+# predictors: "Age + Gender + Heart_Rate + Blood_Pressure_Systolic + Blood_Pressure_Diastolic + Stress_Level_Biosensor + Stress_Level_Self_Report + Physical_Activity + Sleep_Quality + Mood + Study_Hours + Project_Hours" 
+m3_cv_log_loss <- c(0,0,0,0,0)
+
+#itr over cv folds
+for(fold in 1:5){
+  #split tr data into folds
+  cv_tr <- tr[v != fold, ]   
+  cv_te <- tr[v == fold, ]
+  
+  #fit on all, excluding response labels(Health_Risk_Level, y_Low, y_Moderate, y_High)
+  m3_High <- glm(y_High ~ Age + Gender + Heart_Rate + Blood_Pressure_Systolic + Blood_Pressure_Diastolic + Stress_Level_Biosensor + Stress_Level_Self_Report + Physical_Activity + Sleep_Quality + Mood + Study_Hours + Project_Hours,data = cv_tr, family = "binomial")
+  m3_Moderate <- glm(y_Moderate ~ Age + Gender + Heart_Rate + Blood_Pressure_Systolic + Blood_Pressure_Diastolic + Stress_Level_Biosensor + Stress_Level_Self_Report + Physical_Activity + Sleep_Quality + Mood + Study_Hours + Project_Hours,data = cv_tr, family = "binomial")
+  m3_Low <- glm(y_Low ~ Age + Gender + Heart_Rate + Blood_Pressure_Systolic + Blood_Pressure_Diastolic + Stress_Level_Biosensor + Stress_Level_Self_Report + Physical_Activity + Sleep_Quality + Mood + Study_Hours + Project_Hours,data = cv_tr, family = "binomial")
+
+  # #predict
+  m3_High_Pred <- predict(m3_High, newdata = cv_te, type = 'response')
+  m3_Moderate_Pred <- predict(m3_Moderate, newdata = cv_te, type = 'response')
+  m3_Low_Pred <- predict(m3_Low, newdata = cv_te, type = 'response')
+  
+  #normalize probabilities
+  m3_y_pred <- cbind(m3_Low_Pred,m3_Moderate_Pred,m3_High_Pred)
+  m3_y_pred_row_sum <- rowSums(m3_y_pred)
+  m3_y_pred_normalized <- m3_y_pred / m3_y_pred_row_sum
+  
+  #real label
+  m3_y_real <- cv_te[,c(14,15,16)]
+  
+  #Cross entropy loss
+  m3_cv_log_loss[fold] <-  -mean(rowSums(m3_y_real * log(m3_y_pred_normalized)))
+}
+
+m3_log_loss <- mean(m3_cv_log_loss)
+```
+
+##Model 4: ovr cvglmnet LASSO
+```{r}
+lasso_cv_log_loss <- c(0,0,0,0,0)
+for(fold in 1:5){
+  #split tr data into folds and extract feature matrix and response matrix for lasso using glmnet, also exlcuding hard class label from label matrix
+  cv_x_tr <- as.matrix(tr[v != fold, - c(13,14,15,16)])
+  cv_y_tr <- tr[v != fold, c(14,15,16)]
+  cv_x_te <- as.matrix(tr[v == fold, - c(13,14,15,16)])
+  cv_y_te <- tr[v == fold,c(14,15,16)]
+  
+  #train
+  lasso_high <- cv.glmnet(cv_x_tr, cv_y_tr[,"y_High"], family = "binomial", type.measure = "deviance")
+  lasso_moderate <- cv.glmnet(cv_x_tr, cv_y_tr[,"y_Moderate"], family = "binomial", type.measure = "deviance")
+  lasso_low <- cv.glmnet(cv_x_tr, cv_y_tr[,"y_Low"], family = "binomial", type.measure = "deviance")
+  
+  #pred
+  lasso_high_pred <- predict(lasso_high, newx = cv_x_te, s = "lambda.min", type = "response")
+  lasso_moderate_pred <- predict(lasso_moderate, newx = cv_x_te, s = "lambda.min", type = "response")
+  lasso_low_pred <- predict(lasso_low, newx = cv_x_te, s = "lambda.min", type = "response")
+  
+  #prob matrix
+  lasso_y_pred <- cbind(lasso_low_pred, lasso_moderate_pred ,lasso_high_pred)
+  lasso_y_pred_rowsums <- rowSums(lasso_y_pred)
+  lasso_y_pred_normalized <- lasso_y_pred / lasso_y_pred_rowsums
+  
+  #Log loss calc
+  lasso_cv_log_loss[fold] <- -mean(rowSums(cv_y_te * log(lasso_y_pred_normalized)))
+}
+
+lasso_log_loss <- mean(lasso_cv_log_loss)
+```
+
+##Model 5: Pareto optimization(maybe)
+
+```{r}
+```
+
+##Ordinal stuff:
+
+```{r}
+#polr src: https://www.princeton.edu/~otorres/LogitR101.pdf
+#1a) LogR Model using same feature as baseline(Health Risk Level ~ Stress_Level_Self_Report)
+stress_self_report <- polr(Health_Risk_Level ~ Stress_Level_Self_Report, data = tr, Hess = TRUE)
+
+#1b) LogR Model using same feature as baseline(Health Risk Level ~ Stress_Level_Biosensor)
+stress_biosensor <- polr(Health_Risk_Level ~ Stress_Level_Biosensor, data = tr, Hess = TRUE)
+
+#2) Full Log R model (Health Risk Level ~ .)
+full <- polr(Health_Risk_Level ~ ., data = tr, Hess = TRUE)
+
+#3) Log R with LASSO, note: regularized
+lasso <- ordinalNetCV(x_tr, y_tr, alpha = 1, nFolds = 5, family = "cumulative",tuneMethod = "aic")
 
 ```
 
 ```{r}
-# Baseline Model
-
+#Analysis on Train set
+#Sensitivity, Specifity, Precision
+#Analysis on Test set
 ```
-
-
-```{r}
-#Log R Model
-```
-
-
-
-
-
 
 
 
