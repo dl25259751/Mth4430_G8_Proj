@@ -1,0 +1,220 @@
+---
+title: "Tree & Forest"
+author: "Christopher Guzman, Dereck Lin, Haris Nioulikos, Samiha Uddin"
+date: "2025-12-13"
+output:
+  pdf_document: default
+  word_document: default
+subtitle: Mth 4330
+header-includes:
+- \usepackage{amsmath}
+- \usepackage{amssymb}
+- \usepackage{graphicx}
+- \usepackage{enumitem}
+---
+
+<!-- Keep this block  -->
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+
+# Add any R packages you want here -----------------------
+library(rstudioapi)
+library(ISLR2)
+library(purrr)
+library(dplyr)# used for ordinal encoding, unused i think
+library(MASS) # for ordered logr
+library(caret)# for tree
+library(rpart)# for tree
+library(randomForest)
+library(tidyverse)
+library(glmnet)# for lasso
+library(ggplot2)                     
+library(GGally)
+library(rpart.plot)
+
+# Do not touch below this line ---------------------------
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+def.chunk.hook  <- knitr::knit_hooks$get("chunk")
+knitr::knit_hooks$set(chunk = function(x, options) {
+  x <- def.chunk.hook(x, options)
+  paste0("\n \\", "footnotesize","\n\n", x, "\n\n \\normalsize")
+})
+```
+
+```{r, echo=TRUE, fig.align="center", out.width="80%"}
+# Data Processing, same as from intermed rep
+student_health_data <- read.csv('Data/student_health_data.csv')
+#convert response label to an ordered factor
+student_health_data$Health_Risk_Level <- factor(student_health_data$Health_Risk_Level,levels = c("Low", "Moderate", "High"),ordered = TRUE)
+
+#Encoding ordinal features, and the nominal feature gender
+#cat features:  Gender, Physical_Activity, Sleep_Quality, Mood
+student_health_data <- student_health_data %>%
+  mutate(
+    Gender = case_when(
+      Gender == "M" ~ 1,
+      Gender == "F" ~ 0
+      ),
+    Physical_Activity = case_when(
+      Physical_Activity == "High" ~ 2,
+      Physical_Activity == "Moderate" ~ 1,
+      Physical_Activity == "Low" ~ 0
+      ),
+    Sleep_Quality = case_when(
+      Sleep_Quality == "Good" ~ 2,
+      Sleep_Quality == "Moderate" ~ 1,
+      Sleep_Quality == "Poor" ~ 0
+      ),
+    Mood = case_when(
+      Mood == "Happy" ~ 2,
+      Mood == "Neutral" ~ 1,
+      Mood == "Stressed" ~ 0
+      )
+    )
+
+# remove identifier(Student_ID)
+student_health_data$Student_ID <- NULL
+
+#OVR encode into separate cols
+classes <- levels(student_health_data$Health_Risk_Level)
+for(class in classes){
+  isClass <- paste0("y_", class)
+  student_health_data[[isClass]] <- ifelse(student_health_data$Health_Risk_Level == class, 1, 0)
+}
+
+
+set.seed(1)#for reproducibility
+
+# split into train&test(8:2)
+# src: https://scikit-learn.org/stable/common_pitfalls.html
+idx <- createDataPartition(student_health_data$Health_Risk_Level, p = 0.8, list = FALSE)
+tr <- student_health_data[idx,]
+te <- student_health_data[-idx,]
+
+#cv split assignments
+v <- sample(1:5, nrow(tr), replace = TRUE)
+my_folds_list <- lapply(1:5, function(i) which(v != i))
+names(my_folds_list) <- paste0("Fold", 1:5)
+#full features: ~ Age + Gender + Heart_Rate + Blood_Pressure_Systolic + Blood_Pressure_Diastolic + Stress_Level_Biosensor + Stress_Level_Self_Report + Physical_Activity + Sleep_Quality + Mood + Study_Hours + Project_Hours
+```
+
+<!-- -https://www.geeksforgeeks.org/machine-learning/how-to-tune-a-decision-tree-in-hyperparameter-tuning/- -->
+<!-- https://bookdown.org/jhvdz1/ml2/classification-decision-trees.html -->
+<!-- note: tree & rand forest expect char vector for labels-->
+<!-- cv -> used to tune max depth, pre-pruning, and to tune complexity, post-pruining, test both params via grid search -->
+
+## Decision tree, tuned and features selected via cv
+```{r,echo = TRUE,fig.align="center", out.width="80%"}
+dt_base <- rpart(
+    Health_Risk_Level ~ Age + Gender + Heart_Rate + Blood_Pressure_Systolic + Blood_Pressure_Diastolic + Stress_Level_Biosensor + Stress_Level_Self_Report + Physical_Activity + Sleep_Quality + Mood + Study_Hours + Project_Hours,
+    data = tr,
+    method = "class"
+  )
+
+#untuned dt visualized
+rpart.plot(dt_base, 
+           type = 2,
+           extra = 101,
+           fallen.leaves = TRUE)
+
+#tr error
+dt_base_tr_pred <-predict(dt_base, newdata = tr, type = "class")
+tr_pred_labels <- 
+dt_base_tr_conf_mat <- table(Predicted = dt_base_tr_pred, Actual = tr$Health_Risk_Level)
+dt_base_tr_conf_mat
+  #obv overfit, just learned the data
+
+#te error
+dt_base_te_pred <-predict(dt_base, newdata = te, type = "class")
+dt_base_te_conf_mat <- table(Predicted = dt_base_te_pred, Actual = te$Health_Risk_Level)
+dt_base_te_conf_mat
+```
+
+## Decision tree, tuned and features selected via cv
+```{r}
+#using v as split indexes for cv
+trctrl <- trainControl(method = "cv", number = 5, index = my_folds_list, classProbs = TRUE, summaryFunction = mnLogLoss)
+#complexity param from 0 to 1, most -> least complex 
+grid <- expand.grid(cp = c(0, 0.001, 0.005, 0.01, 0.02, 0.05, 0.1))
+
+dt_cv <- train(Health_Risk_Level ~ Age + Gender + Heart_Rate + Blood_Pressure_Systolic + Blood_Pressure_Diastolic + Stress_Level_Biosensor + Stress_Level_Self_Report + Physical_Activity + Sleep_Quality + Mood + Study_Hours + Project_Hours, data = tr, method = "rpart", trControl = trctrl, tuneGrid = grid, metric = "logLoss")
+
+```
+
+##sep chunk for vis and data stuff to sep from comp time
+
+```{r}
+#output best tree
+#print(dt_cv)
+plot(dt_cv)
+
+rpart.plot(dt_cv$finalModel, 
+           type = 2,
+           extra = 101,
+           fallen.leaves = TRUE)
+
+#convert
+y_tr <- tr[,c(14,15,16)]
+y_te <- te[,c(14,15,16)]
+
+#tr error
+dt_cv_tr_pred <-predict(dt_cv$finalModel, newdata = tr, type = "class")
+dt_cv_tr_conf_mat <- table(Predicted = dt_cv_tr_pred, Actual = tr$Health_Risk_Level)
+#dt_cv_tr_conf_mat
+
+dt_cv_tr_pred_prob <-predict(dt_cv$finalModel, newdata = tr, type = "prob")
+prob_safe <- pmax(as.matrix(dt_cv_tr_pred_prob), 1e-15)
+prob_safe <- pmin(prob_safe, 1 - 1e-15)
+dt_cv_tr_log_loss <- -mean(rowSums(y_tr * log(prob_safe)))
+dt_cv_tr_log_loss
+  
+#te error
+dt_cv_te_pred <-predict(dt_cv$finalModel, newdata = te, type = "class")
+dt_cv_te_conf_mat <- table(Predicted = dt_cv_te_pred, Actual = te$Health_Risk_Level)
+#dt_cv_te_conf_mat
+
+dt_cv_te_pred_prob <-predict(dt_cv$finalModel, newdata = te, type = "prob")
+prob_safe <- pmax(as.matrix(dt_cv_te_pred_prob), 1e-15)
+prob_safe <- pmin(prob_safe, 1 - 1e-15)
+dt_cv_te_log_loss <- -mean(rowSums(y_te * log(prob_safe)))
+dt_cv_te_log_loss
+
+##dt sensitivity on test set pred
+matrix_te <- confusionMatrix(data = dt_cv_te_pred, reference = te$Health_Risk_Level)
+matrix_te
+mean(dt_cv$results$logLoss)
+```
+## Rand forest
+
+<!-- https://www.geeksforgeeks.org/machine-learning/building-a-randomforest-with-caret/ -->
+
+```{r}
+rf_cv <- train(Health_Risk_Level ~ Age + Gender + Heart_Rate + Blood_Pressure_Systolic + Blood_Pressure_Diastolic + Stress_Level_Biosensor + Stress_Level_Self_Report + Physical_Activity + Sleep_Quality + Mood + Study_Hours + Project_Hours, data = tr, method = "rf", trControl = trctrl, metric = "logLoss")
+
+```
+
+```{r}
+# rf_pred_tr <- predict(rf_cv, newdata = tr)
+# confusionMatrix(data = rf_pred_tr, reference = tr$Health_Risk_Level)
+
+rf_cv_logloss <-mean(rf_cv$results$logLoss)
+rf_cv_logloss
+
+rf_pre_te_prob <- predict(rf_cv, newdata = te, type = "prob")
+rf_pre_te <- predict(rf_cv, newdata = te)
+
+plot(varImp(rf_cv))
+prob_safe <- pmax(as.matrix(rf_pre_te_prob), 1e-15)
+prob_safe <- pmin(prob_safe, 1 - 1e-15)
+rf_te_logloss <- -mean(rowSums(y_te * log(prob_safe)))
+rf_te_logloss
+
+confusionMatrix(data = rf_pre_te, reference = te$Health_Risk_Level)
+```
+
+
+
+
+
+

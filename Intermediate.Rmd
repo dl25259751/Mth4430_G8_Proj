@@ -24,7 +24,7 @@ library(ISLR2)
 library(purrr)
 library(dplyr)# used for ordinal encoding
 library(MASS) # for ordered logr
-#library(caret)
+library(caret)
 library(tidyverse)
 library(glmnet)# for lasso
 #library(ordinalNet)# for ordinal Lasso
@@ -86,13 +86,6 @@ idx <- createDataPartition(student_health_data$Health_Risk_Level, p = 0.8, list 
 tr <- student_health_data[idx,]
 te <- student_health_data[-idx,]
 
-#extract feature matrix and response matrix for lasso using glmnet
-# x_tr <- tr[,- c(13,14,15,16)]
-# y_tr <- tr[,c(13,14,15,16)]
-# 
-# x_te <- te[,- c(13,14,15,16)]
-# y_te <- te[, c(13,14,15,16)]
-
 #cv vec
 v <- sample(1:5, nrow(tr), replace = TRUE)
 
@@ -102,47 +95,6 @@ v <- sample(1:5, nrow(tr), replace = TRUE)
 ```{r}
 
 ```
-
-##model 1: y ~ Stress_Level_Self_Report
-
-```{r}
-#simple log r, one vs rest, ie isHigh vs !isHigh, isModerate vs !isModerate, isLow vs !isLow
-#src: Logistic regression 5.1: Multiclass - One-vs-rest classification, https://www.youtube.com/watch?v=EYXSve6T5BU&t=75s
-
-m1_cv_log_loss <- c(0,0,0,0,0)
-#itr over cv folds
-for(fold in 1:5){
-  #split tr data into folds
-  cv_tr <- tr[v != fold, ]   
-  cv_te <- tr[v == fold, ]
-  
-  #fit on Stress_Level_Self_Report
-  m1_High <- glm(y_High ~ Stress_Level_Self_Report,data = cv_tr, family = "binomial")
-  m1_Moderate <- glm(y_Moderate ~ Stress_Level_Self_Report,data = cv_tr, family = "binomial")
-  m1_Low <- glm(y_Low ~ Stress_Level_Self_Report,data = cv_tr, family = "binomial")
-  
-  #predict
-  m1_High_Pred <- predict(m1_High, newdata = cv_te, type = 'response')
-  m1_Moderate_Pred <- predict(m1_Moderate, newdata = cv_te, type = 'response')
-  m1_Low_Pred <- predict(m1_Low, newdata = cv_te, type = 'response')
-  
-  #normalize probabilities
-  m1_y_pred <- cbind(m1_Low_Pred,m1_Moderate_Pred,m1_High_Pred)
-  m1_y_pred_row_sum <- rowSums(m1_y_pred)
-  m1_y_pred_normalized <- m1_y_pred / m1_y_pred_row_sum
-  
-  #real label
-  m1_y_real <- cv_te[,c(14,15,16)]
-  
-  #Cross entropy loss
-
-  m1_cv_log_loss[fold] <-  -mean(rowSums(m1_y_real * log(m1_y_pred_normalized)))
-}
-
-m1_log_loss <- mean(m1_cv_log_loss)
-```
-
-##Model 2: y ~ Stress_Level_Biosensor
 
 ```{r}
 m2_cv_log_loss <- c(0,0,0,0,0)
@@ -243,16 +195,85 @@ for(fold in 1:5){
   
   #Log loss calc
   lasso_cv_log_loss[fold] <- -mean(rowSums(cv_y_te * log(lasso_y_pred_normalized)))
+  print(lasso_high$lambda.min)
 }
 
 lasso_log_loss <- mean(lasso_cv_log_loss)
 ```
 
-##Model 5: Pareto optimization(maybe)
+##LASSO refit with lambdamins
+```{r}
+lambda_min <- c(lasso_low$lambda.min, lasso_moderate$lambda.min, lasso_high$lambda.min)
+
+X_tr_full_matrix <- as.matrix(tr[, -c(13, 14, 15, 16)])
+Y_tr_full_targets <- tr[, c(14, 15, 16)]
+
+best_lasso_high <- glmnet(X_tr_full_matrix, tr[,16 ], family = "binomial", type.measure = "deviance", lambda = lambda_min[3])
+best_lasso_moderate <- glmnet(X_tr_full_matrix, tr[,15 ], family = "binomial", type.measure = "deviance", lambda = lambda_min[2])
+best_lasso_low <- glmnet(X_tr_full_matrix, tr[,14 ], family = "binomial", type.measure = "deviance", lambda = lambda_min[1])
+
+best_lasso_high_pred <- predict(best_lasso_high, newx = X_tr_full_matrix, s = lambda_min[3], type = "response")
+best_lasso_moderate_pred <- predict(best_lasso_moderate, newx = X_tr_full_matrix, s = lambda_min[2], type = "response")
+best_lasso_low_pred <- predict(best_lasso_low, newx = X_tr_full_matrix, s = lambda_min[1], type = "response")
+
+best_lasos_y_pred <- cbind(best_lasso_low_pred,best_lasso_moderate_pred,best_lasso_high_pred)
+best_lasso_y_pred_rowsum <- rowSums(best_lasos_y_pred)
+best_lasso_y_pred_normalized <- best_lasos_y_pred / best_lasso_y_pred_rowsum
+
+log_loss <- -mean(rowSums(Y_tr_full_targets * log(best_lasso_y_pred_normalized)))
+log_loss 
+
+```
+##Predict on Test set
+#1) initial log model
+```{r}
+
+
+```
+#2) Optimized Lasso Model
+
+
+## Ignore below 
+##model 1: y ~ Stress_Level_Self_Report
 
 ```{r}
+#simple log r, one vs rest, ie isHigh vs !isHigh, isModerate vs !isModerate, isLow vs !isLow
+#src: Logistic regression 5.1: Multiclass - One-vs-rest classification, https://www.youtube.com/watch?v=EYXSve6T5BU&t=75s
+
+m1_cv_log_loss <- c(0,0,0,0,0)
+#itr over cv folds
+for(fold in 1:5){
+  #split tr data into folds
+  cv_tr <- tr[v != fold, ]   
+  cv_te <- tr[v == fold, ]
+  
+  #fit on Stress_Level_Self_Report
+  m1_High <- glm(y_High ~ Stress_Level_Self_Report,data = cv_tr, family = "binomial")
+  m1_Moderate <- glm(y_Moderate ~ Stress_Level_Self_Report,data = cv_tr, family = "binomial")
+  m1_Low <- glm(y_Low ~ Stress_Level_Self_Report,data = cv_tr, family = "binomial")
+  
+  #predict
+  m1_High_Pred <- predict(m1_High, newdata = cv_te, type = 'response')
+  m1_Moderate_Pred <- predict(m1_Moderate, newdata = cv_te, type = 'response')
+  m1_Low_Pred <- predict(m1_Low, newdata = cv_te, type = 'response')
+  
+  #normalize probabilities
+  m1_y_pred <- cbind(m1_Low_Pred,m1_Moderate_Pred,m1_High_Pred)
+  m1_y_pred_row_sum <- rowSums(m1_y_pred)
+  m1_y_pred_normalized <- m1_y_pred / m1_y_pred_row_sum
+  
+  #real label
+  m1_y_real <- cv_te[,c(14,15,16)]
+  
+  #Cross entropy loss
+
+  m1_cv_log_loss[fold] <-  -mean(rowSums(m1_y_real * log(m1_y_pred_normalized)))
+}
+
+m1_log_loss <- mean(m1_cv_log_loss)
 ```
 
+##Model 2: y ~ Stress_Level_Biosensor
 ##Ordinal stuff:
 
 ```{r}
@@ -270,13 +291,6 @@ full <- polr(Health_Risk_Level ~ ., data = tr, Hess = TRUE)
 lasso <- ordinalNetCV(x_tr, y_tr, alpha = 1, nFolds = 5, family = "cumulative",tuneMethod = "aic")
 
 ```
-
-```{r}
-#Analysis on Train set
-#Sensitivity, Specifity, Precision
-#Analysis on Test set
-```
-
 
 
 

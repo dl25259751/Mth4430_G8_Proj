@@ -1,0 +1,413 @@
+---
+title: "MTH4430 FinalProj Work"
+author: "Christopher Guzman, Dereck Lin, Haris Nioulikos, Samiha Uddin"
+date: "2025-11-17"
+output:
+  pdf_document: default
+  word_document: default
+subtitle: Mth 4330
+header-includes:
+- \usepackage{amsmath}
+- \usepackage{amssymb}
+- \usepackage{graphicx}
+- \usepackage{enumitem}
+---
+
+<!-- Keep this block  -->
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+
+# Add any R packages you want here -----------------------
+library(rstudioapi)
+library(ISLR2)
+library(purrr)
+library(dplyr)# used for ordinal encoding
+library(MASS) # for ordered logr
+library(caret)# for 
+library(tidyverse)
+library(glmnet)# for lasso
+library(ggplot2)                     
+library(GGally)
+# Do not touch below this line ---------------------------
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+def.chunk.hook  <- knitr::knit_hooks$get("chunk")
+knitr::knit_hooks$set(chunk = function(x, options) {
+  x <- def.chunk.hook(x, options)
+  paste0("\n \\", "footnotesize","\n\n", x, "\n\n \\normalsize")
+})
+```
+
+```{r, echo=TRUE, fig.align="center", out.width="80%"}
+# Data Processing
+student_health_data <- read.csv('Data/student_health_data.csv')
+#convert response label to an ordered factor
+student_health_data$Health_Risk_Level <- factor(student_health_data$Health_Risk_Level,levels = c("Low", "Moderate", "High"),ordered = TRUE)
+
+#Encoding ordinal features, and the nominal feature gender
+#cat features:  Gender, Physical_Activity, Sleep_Quality, Mood
+student_health_data <- student_health_data %>%
+  mutate(
+    Gender = case_when(
+      Gender == "M" ~ 1,
+      Gender == "F" ~ 0
+      ),
+    Physical_Activity = case_when(
+      Physical_Activity == "High" ~ 2,
+      Physical_Activity == "Moderate" ~ 1,
+      Physical_Activity == "Low" ~ 0
+      ),
+    Sleep_Quality = case_when(
+      Sleep_Quality == "Good" ~ 2,
+      Sleep_Quality == "Moderate" ~ 1,
+      Sleep_Quality == "Poor" ~ 0
+      ),
+    Mood = case_when(
+      Mood == "Happy" ~ 2,
+      Mood == "Neutral" ~ 1,
+      Mood == "Stressed" ~ 0
+      )
+    )
+
+# remove identifier(Student_ID)
+student_health_data$Student_ID <- NULL
+
+#OVR encode into separate cols
+classes <- levels(student_health_data$Health_Risk_Level)
+for(class in classes){
+  isClass <- paste0("y_", class)
+  student_health_data[[isClass]] <- ifelse(student_health_data$Health_Risk_Level == class, 1, 0)
+}
+
+#numerical encode for 
+
+set.seed(1)#for reproducibility
+
+# split into train&test(8:2)
+# src: https://scikit-learn.org/stable/common_pitfalls.html
+idx <- createDataPartition(student_health_data$Health_Risk_Level, p = 0.8, list = FALSE)
+tr <- student_health_data[idx,]
+te <- student_health_data[-idx,]
+
+#cv split assignments
+v <- sample(1:5, nrow(tr), replace = TRUE)
+
+```
+
+```{r, echo=TRUE, fig.align="center", out.width="80%"}
+#Baseline Model: Majority Rule by Christopher Guzman
+ProjData <- student_health_data # To load the dataset
+#print(df) # To view how the dataset would look like 
+dim(ProjData) # If curious about the dimensions of dataset
+head(ProjData) # Want to see first few rows
+#print(df$Health_Risk_Level) # To view the variable we are planning to predict
+# names(ProjData) # To see the names of the columns of dataset
+
+
+# str(ProjData) # if you want a summary of dataset
+table(ProjData$Health_Risk_Level)   # check the class distribution
+# We can use the table() function to create frequency tables of categorical data of a certain vector.
+# It will count the number of times a unique value or combination of values shows up in a vector.
+# Can use for combination of vectors, creating a contingency table
+
+
+ProjData$Health_Risk_Level = factor(ProjData$Health_Risk_Level) # Factor function used to handle categorical variables
+
+# Baseline: Majority Class Predictor 
+# Find most frequent class
+majority_class = names(which.max(table(ProjData$Health_Risk_Level)))
+print(majority_class)
+
+# We will predict this class for every student
+baseline_predictions = rep(majority_class, nrow(ProjData))
+
+# Compute Accuracy 
+baseline_accuracy = mean(baseline_predictions == ProjData$Health_Risk_Level)
+print(baseline_accuracy)
+
+
+
+ggplot(ProjData, aes(x = Health_Risk_Level)) +
+  geom_bar() +
+  labs(title = "Class Distribution of Health Risk Level",
+       x = "Health Risk Level",
+       y = "Count")
+
+```
+
+## Base ovr Log Reg Model
+```{r, echo=TRUE, fig.align="center", out.width="80%"}
+# predictors: "Age + Gender + Heart_Rate + Blood_Pressure_Systolic + Blood_Pressure_Diastolic + Stress_Level_Biosensor + Stress_Level_Self_Report + Physical_Activity + Sleep_Quality + Mood + Study_Hours + Project_Hours" 
+logr_cv_log_loss <- c(0,0,0,0,0)
+
+#itr over cv folds
+for(fold in 1:5){
+  #split tr data into folds
+  cv_tr <- tr[v != fold, ]   
+  cv_te <- tr[v == fold, ]
+  
+  #fit on all, excluding response labels(Health_Risk_Level, y_Low, y_Moderate, y_High)
+  logr_High <- glm(y_High ~ Age + Gender + Heart_Rate + Blood_Pressure_Systolic + Blood_Pressure_Diastolic + Stress_Level_Biosensor + Stress_Level_Self_Report + Physical_Activity + Sleep_Quality + Mood + Study_Hours + Project_Hours,data = cv_tr, family = "binomial")
+  logr_Moderate <- glm(y_Moderate ~ Age + Gender + Heart_Rate + Blood_Pressure_Systolic + Blood_Pressure_Diastolic + Stress_Level_Biosensor + Stress_Level_Self_Report + Physical_Activity + Sleep_Quality + Mood + Study_Hours + Project_Hours,data = cv_tr, family = "binomial")
+  logr_Low <- glm(y_Low ~ Age + Gender + Heart_Rate + Blood_Pressure_Systolic + Blood_Pressure_Diastolic + Stress_Level_Biosensor + Stress_Level_Self_Report + Physical_Activity + Sleep_Quality + Mood + Study_Hours + Project_Hours,data = cv_tr, family = "binomial")
+
+  # #predict
+  logr_High_Pred <- predict(logr_High, newdata = cv_te, type = 'response')
+  logr_Moderate_Pred <- predict(logr_Moderate, newdata = cv_te, type = 'response')
+  logr_Low_Pred <- predict(logr_Low, newdata = cv_te, type = 'response')
+  
+  #normalize probabilities
+  logr_y_pred <- cbind(logr_Low_Pred,logr_Moderate_Pred,logr_High_Pred)
+  logr_y_pred_row_sum <- rowSums(logr_y_pred)
+  logr_y_pred_normalized <- logr_y_pred / logr_y_pred_row_sum
+  
+  #real label
+  logr_y_real <- cv_te[,c("y_Low","y_Moderate","y_High")]
+  
+  #Cross entropy loss
+  logr_cv_log_loss[fold] <-  -mean(rowSums(logr_y_real * log(logr_y_pred_normalized)))
+}
+
+logr_log_loss <- mean(logr_cv_log_loss)
+logr_log_loss
+
+```
+
+## Refitting base ovr Logr on entirety of train set
+```{r, echo=TRUE, fig.align="center", out.width="80%"}
+final_logr_High <- glm(y_High ~ Age + Gender + Heart_Rate + Blood_Pressure_Systolic + Blood_Pressure_Diastolic + Stress_Level_Biosensor + Stress_Level_Self_Report + Physical_Activity + Sleep_Quality + Mood + Study_Hours + Project_Hours, 
+                       data = tr, family = "binomial")
+
+final_logr_Moderate <- glm(y_Moderate ~ Age + Gender + Heart_Rate + Blood_Pressure_Systolic + Blood_Pressure_Diastolic + Stress_Level_Biosensor + Stress_Level_Self_Report + Physical_Activity + Sleep_Quality + Mood + Study_Hours + Project_Hours, 
+                           data = tr, family = "binomial")
+
+final_logr_Low <- glm(y_Low ~ Age + Gender + Heart_Rate + Blood_Pressure_Systolic + Blood_Pressure_Diastolic + Stress_Level_Biosensor + Stress_Level_Self_Report + Physical_Activity + Sleep_Quality + Mood + Study_Hours + Project_Hours, 
+                      data = tr, family = "binomial")
+```
+
+
+## Pred Final ovr Log R model on Train Set
+
+```{r}
+final_logr_High_pred <- predict(final_logr_High, newdata = tr, type = 'response')
+final_logr_Moderate_pred <- predict(final_logr_Moderate, newdata = tr, type = 'response')
+final_logr_Low_pred <- predict(final_logr_Low, newdata = tr, type = 'response')
+
+final_logr_pred_prob <- cbind(final_logr_Low_pred,final_logr_Moderate_pred,final_logr_High_pred)
+final_logr_pred_prob_rsum <- rowSums(final_logr_pred_prob)
+final_logr_pred_prob_normalized <- final_logr_pred_prob / final_logr_pred_prob_rsum
+
+final_logr_log_loss <- -mean(rowSums(tr[,c("y_Low","y_Moderate","y_High")] * log(final_logr_pred_prob_normalized)))
+final_logr_log_loss
+
+```
+
+## Pred Final ovr Log R model on Test Set
+
+```{r, echo=TRUE, fig.align="center", out.width="80%"}
+#Predict
+final_logr_High_pred <- predict(final_logr_High, newdata = te, type = 'response')
+final_logr_Moderate_pred <- predict(final_logr_Moderate, newdata = te, type = 'response')
+final_logr_Low_pred <- predict(final_logr_Low, newdata = te, type = 'response')
+
+# bind into prob vec
+final_logr_pred_prob <- cbind(final_logr_Low_pred,final_logr_Moderate_pred,final_logr_High_pred)
+final_logr_pred_prob_rsum <- rowSums(final_logr_pred_prob)
+final_logr_pred_prob_normalized <- final_logr_pred_prob / final_logr_pred_prob_rsum
+
+final_logr_log_loss <- -mean(rowSums(te[,c("y_Low","y_Moderate","y_High")] * log(final_logr_pred_prob_normalized)))
+final_logr_log_loss
+
+
+```
+
+## Sanity check, comparing Majority rule with Logr
+
+```{r, echo=TRUE, fig.align="center", out.width="80%"}
+
+#Vector of hard classes extracted from test set
+y_te_real <- te[,"Health_Risk_Level"]
+
+#collapsing 'logr_y_pred_normalized' into hard classes
+logr_y_pred_class <- max.col(final_logr_pred_prob_normalized)
+
+#using accuracy as a baseline metric
+desired_levels <- c("Low", "Moderate", "High")
+colnames(final_logr_pred_prob_normalized) <- desired_levels
+final_predictions <- colnames(final_logr_pred_prob_normalized)[logr_y_pred_class]
+
+final_predictions <- factor(final_predictions, levels = desired_levels)
+
+logr_conf_matrix <- table(Predicted = final_predictions, Actual = te$Health_Risk_Level)
+
+confusionMatrix(logr_conf_matrix, mode = "everything")
+```
+
+## ovr LASSO
+```{r, echo=TRUE, fig.align="center", out.width="80%"}
+lasso_cv_log_loss <- c(0,0,0,0,0)
+for(fold in 1:5){
+  #13-16 = health risk lvl, y_...,y_...,y_...
+  #split tr data into folds and extract feature matrix and response matrix for lasso using glmnet, also exlcuding hard class label from label matrix
+  cv_x_tr <- as.matrix(tr[v != fold, - c(13,14,15,16)])
+  cv_y_tr <- tr[v != fold, c("y_Low","y_Moderate","y_High")]
+  cv_x_te <- as.matrix(tr[v == fold, - c(13,14,15,16)])
+  cv_y_te <- tr[v == fold,c("y_Low","y_Moderate","y_High")]
+  
+  #train
+  lasso_high <- cv.glmnet(cv_x_tr, cv_y_tr[,"y_High"], family = "binomial", type.measure = "deviance")
+  lasso_moderate <- cv.glmnet(cv_x_tr, cv_y_tr[,"y_Moderate"], family = "binomial", type.measure = "deviance")
+  lasso_low <- cv.glmnet(cv_x_tr, cv_y_tr[,"y_Low"], family = "binomial", type.measure = "deviance")
+  
+  #pred
+  lasso_high_pred <- predict(lasso_high, newx = cv_x_te, s = "lambda.min", type = "response")
+  lasso_moderate_pred <- predict(lasso_moderate, newx = cv_x_te, s = "lambda.min", type = "response")
+  lasso_low_pred <- predict(lasso_low, newx = cv_x_te, s = "lambda.min", type = "response")
+  
+  #prob matrix
+  lasso_y_pred <- cbind(lasso_low_pred, lasso_moderate_pred ,lasso_high_pred)
+  lasso_y_pred_rowsums <- rowSums(lasso_y_pred)
+  lasso_y_pred_normalized <- lasso_y_pred / lasso_y_pred_rowsums
+  
+  #Log loss calc
+  lasso_cv_log_loss[fold] <- -mean(rowSums(cv_y_te * log(lasso_y_pred_normalized)))
+}
+
+lasso_log_loss <- mean(lasso_cv_log_loss)
+lasso_log_loss
+```
+
+## LASSO refit on Train set
+```{r, echo=TRUE, fig.align="center", out.width="80%"}
+X_tr_full_matrix <- as.matrix(tr[, -c(13, 14, 15, 16)])
+Y_tr_full_targets <- tr[, c(14, 15, 16)]
+
+best_lasso_high <- cv.glmnet(X_tr_full_matrix, tr[,16 ], family = "binomial", type.measure = "deviance")
+best_lasso_moderate <- cv.glmnet(X_tr_full_matrix, tr[,15 ], family = "binomial", type.measure = "deviance")
+best_lasso_low <- cv.glmnet(X_tr_full_matrix, tr[,14 ], family = "binomial", type.measure = "deviance")
+
+best_lasso_high_pred <- predict(best_lasso_high, newx = X_tr_full_matrix, s = "lambda.min", type = "response")
+best_lasso_moderate_pred <- predict(best_lasso_moderate, newx = X_tr_full_matrix, s = "lambda.min", type = "response")
+best_lasso_low_pred <- predict(best_lasso_low, newx = X_tr_full_matrix, s = "lambda.min", type = "response")
+
+best_lasos_y_pred <- cbind(best_lasso_low_pred,best_lasso_moderate_pred,best_lasso_high_pred)
+best_lasso_y_pred_rowsum <- rowSums(best_lasos_y_pred)
+best_lasso_y_pred_normalized <- best_lasos_y_pred / best_lasso_y_pred_rowsum
+
+log_loss <- -mean(rowSums(Y_tr_full_targets * log(best_lasso_y_pred_normalized)))
+log_loss 
+
+best_lambda <- c(best_lasso_low$lambda.min, best_lasso_moderate$lambda.min, best_lasso_high$lambda.min)
+best_lambda
+```
+
+## Optimized Lasso Model
+```{r, echo=TRUE, fig.align="center", out.width="80%"}
+X_te_full_matrix <- as.matrix(te[, -c(13, 14, 15, 16)])
+Y_te_full_targets <- te[, c(14, 15, 16)]
+
+te_best_lasso_high_pred <- predict(best_lasso_high, newx = X_te_full_matrix, s = best_lambda[3], type = "response")
+te_best_lasso_moderate_pred <- predict(best_lasso_moderate, X_te_full_matrix, s = best_lambda[2], type = "response")
+te_best_lasso_low_pred <- predict(best_lasso_low, newx = X_te_full_matrix, s = best_lambda[1], type = "response")
+
+te_best_lasso_y_pred <- cbind(te_best_lasso_low_pred, te_best_lasso_moderate_pred, te_best_lasso_high_pred)
+te_best_lasso_y_pred_rsum <- rowSums(te_best_lasso_y_pred)
+te_best_lasso_y_pred_normalized <- te_best_lasso_y_pred / te_best_lasso_y_pred_rsum
+
+te_best_lasso_log_loss <- -mean(rowSums(Y_te_full_targets * log(te_best_lasso_y_pred_normalized)))
+te_best_lasso_log_loss
+
+```
+## Optimized Lasso conf mat
+```{r, echo=TRUE, fig.align="center", out.width="80%"}
+#y_te_real = true hard classes
+#collapsing 'te_best_lasso_y_pred_normalized' into hard classes
+colnames(te_best_lasso_y_pred_normalized) <- c("Low", "Moderate", "High")
+best_lasso_y_pred_class <- max.col(te_best_lasso_y_pred_normalized)
+
+final_predictions <- colnames(te_best_lasso_y_pred_normalized)[best_lasso_y_pred_class]
+
+final_predictions <- factor(final_predictions, levels = desired_levels)
+
+lasso_conf_matrix <- table(Predicted = final_predictions, Actual = te$Health_Risk_Level)
+
+confusionMatrix(lasso_conf_matrix, mode = "everything")
+confusionMatrix(logr_conf_matrix, mode = "everything")
+
+plot(best_lasso_low$glmnet.fit,xvar = "lambda", label = TRUE)
+abline(v = log(best_lambda)[1])
+coef(best_lasso_low, s = "lambda.min")
+
+plot(best_lasso_moderate$glmnet.fit,xvar = "lambda", label = TRUE)
+abline(v = log(best_lambda)[2])
+coef(best_lasso_moderate, s = "lambda.min")
+
+plot(best_lasso_high$glmnet.fit,xvar = "lambda", label = TRUE)
+abline(v = log(best_lambda)[3])
+coef(best_lasso_high, s = "lambda.min")
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
