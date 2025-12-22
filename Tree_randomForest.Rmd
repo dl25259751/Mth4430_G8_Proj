@@ -133,9 +133,8 @@ dt_base_te_conf_mat
 
 ## Decision tree, tuned and features selected via cv
 ```{r,echo = TRUE}
-#using v as split indexes for cv
-trctrl <- trainControl(method = "cv", number = 5, index = my_folds_list, classProbs = TRUE, summaryFunction = mnLogLoss)
-#complexity param from 0 to 1, most -> least complex 
+#using predefined splits for cv
+trctrl <- trainControl(method = "cv", number = 5, index = my_folds_list, classProbs = TRUE, summaryFunction = multiClassSummary)
 grid <- expand.grid(cp = c(0, 0.001, 0.005, 0.01, 0.02, 0.05, 0.1))
 
 dt_cv <- train(Health_Risk_Level ~ Age + Gender + Heart_Rate + Blood_Pressure_Systolic + Blood_Pressure_Diastolic + Stress_Level_Biosensor + Stress_Level_Self_Report + Physical_Activity + Sleep_Quality + Mood + Study_Hours + Project_Hours, data = tr, method = "rpart", trControl = trctrl, tuneGrid = grid, metric = "logLoss")
@@ -197,7 +196,7 @@ rf_cv <- train(Health_Risk_Level ~ Age + Gender + Heart_Rate + Blood_Pressure_Sy
 ```{r,echo = TRUE}
 # rf_pred_tr <- predict(rf_cv, newdata = tr)
 # confusionMatrix(data = rf_pred_tr, reference = tr$Health_Risk_Level)
-
+rf_cv$results
 rf_cv_logloss <-mean(rf_cv$results$logLoss)
 rf_cv_logloss
 
@@ -211,6 +210,7 @@ rf_te_logloss <- -mean(rowSums(y_te * log(prob_safe)))
 rf_te_logloss
 
 confusionMatrix(data = rf_pre_te, reference = te$Health_Risk_Level)
+rf_cv$bestTune
 ```
 
 

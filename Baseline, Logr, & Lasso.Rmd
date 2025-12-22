@@ -94,6 +94,59 @@ v <- sample(1:5, nrow(tr), replace = TRUE)
 
 ```
 
+## some data vis stuff
+```{r}
+#scatter plot of blood pressure health data
+ggplot(data = student_health_data, aes(x = Blood_Pressure_Systolic, y = Blood_Pressure_Diastolic, color = Health_Risk_Level)) +
+  geom_point() +                          # Draws the points
+  labs(title = "Blood_Pressure_Systolic ~ Blood_Pressure_Diastolic",
+       x = "Blood_Pressure_Systolic",
+       y = "Y Axis Label",
+       color = "Class") +                 
+  theme_minimal()                         
+```
+```{r}
+#grped bar chart for phys act, a strong indicator according to lasso & logr coefs
+ggplot(student_health_data, aes(x = Physical_Activity, fill = Health_Risk_Level)) +
+  geom_bar(position = "dodge") +  # "stack" is actually the default
+  labs(title = "Dist of Health_Risk_Level by Physical_activity",
+       x = "Physical_Activity",
+       y = "Count",
+       fill = "Class") +
+  theme_minimal()                 
+```
+```{r}
+#grped bar chart for sleep qual, a strong indicator according to lasso & logr coefs
+ggplot(student_health_data, aes(x = Sleep_Quality, fill = Health_Risk_Level)) +
+  geom_bar(position = "dodge") +  
+  labs(title = "Dist of Health_Risk_Level by Physical_activity",
+       x = "Sleep_Quality",
+       y = "Count",
+       fill = "Class") +
+  theme_minimal()    
+```
+```{r}
+#stress levels scatter plot, second strongest predictors when viewed from the lens of pure magnitude
+ggplot(data = student_health_data, aes(x = Stress_Level_Biosensor, y = Stress_Level_Self_Report, color = Health_Risk_Level)) +
+  geom_point() +                          
+  labs(title = "Stress_Level_Biosensor ~ Stress_Level_Self_Report",
+       x = "Stress_Level_Biosensor",
+       y = "Stress_Level_Self_Report",
+       color = "Class") +                 
+  theme_minimal()  
+```
+```{r}
+#school and excternal work scatter plot
+ggplot(data = student_health_data, aes(x = Project_Hours, y = Study_Hours, color = Health_Risk_Level)) +
+  geom_point() +                          
+  labs(title = "Project_Hours ~ Study_Hours",
+       x = "Project_Hours",
+       y = "Study_Hours",
+       color = "Class") +                 
+  theme_minimal()  
+```
+
+
 ```{r, echo=TRUE, fig.align="center", out.width="80%"}
 #Baseline Model: Majority Rule by Christopher Guzman
 ProjData <- student_health_data # To load the dataset
@@ -183,6 +236,10 @@ final_logr_Moderate <- glm(y_Moderate ~ Age + Gender + Heart_Rate + Blood_Pressu
 
 final_logr_Low <- glm(y_Low ~ Age + Gender + Heart_Rate + Blood_Pressure_Systolic + Blood_Pressure_Diastolic + Stress_Level_Biosensor + Stress_Level_Self_Report + Physical_Activity + Sleep_Quality + Mood + Study_Hours + Project_Hours, 
                       data = tr, family = "binomial")
+
+final_logr_Low$coefficients
+final_logr_Moderate$coefficients
+final_logr_High$coefficients
 ```
 
 
@@ -221,7 +278,7 @@ final_logr_log_loss
 
 ```
 
-## Sanity check, comparing Majority rule with Logr
+## metrics on test
 
 ```{r, echo=TRUE, fig.align="center", out.width="80%"}
 
@@ -231,7 +288,7 @@ y_te_real <- te[,"Health_Risk_Level"]
 #collapsing 'logr_y_pred_normalized' into hard classes
 logr_y_pred_class <- max.col(final_logr_pred_prob_normalized)
 
-#using accuracy as a baseline metric
+#using accuracy as a metric
 desired_levels <- c("Low", "Moderate", "High")
 colnames(final_logr_pred_prob_normalized) <- desired_levels
 final_predictions <- colnames(final_logr_pred_prob_normalized)[logr_y_pred_class]
@@ -239,6 +296,8 @@ final_predictions <- colnames(final_logr_pred_prob_normalized)[logr_y_pred_class
 final_predictions <- factor(final_predictions, levels = desired_levels)
 
 logr_conf_matrix <- table(Predicted = final_predictions, Actual = te$Health_Risk_Level)
+
+
 
 confusionMatrix(logr_conf_matrix, mode = "everything")
 ```
@@ -347,67 +406,4 @@ abline(v = log(best_lambda)[3])
 coef(best_lasso_high, s = "lambda.min")
 
 ```
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
