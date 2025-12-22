@@ -104,7 +104,7 @@ names(my_folds_list) <- paste0("Fold", 1:5)
 <!-- note: tree & rand forest expect char vector for labels-->
 <!-- cv -> used to tune max depth, pre-pruning, and to tune complexity, post-pruining, test both params via grid search -->
 
-## Decision tree, tuned and features selected via cv
+## Decision tree untuned
 ```{r,echo = TRUE,fig.align="center", out.width="80%"}
 dt_base <- rpart(
     Health_Risk_Level ~ Age + Gender + Heart_Rate + Blood_Pressure_Systolic + Blood_Pressure_Diastolic + Stress_Level_Biosensor + Stress_Level_Self_Report + Physical_Activity + Sleep_Quality + Mood + Study_Hours + Project_Hours,
@@ -214,7 +214,7 @@ rf_cv$bestTune
 ```
 
 
-
+ou
 
 
 
